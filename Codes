@@ -59,7 +59,7 @@ boxplot(log_counts_normalized , notch = TRUE ,main = "log2 -transformed  read  c
 library(vsn)
 library(ggplot2)
 library(hexbin)
-msd_plot  <- meanSdPlot(log_counts_normalized ,ranks=FALSE , plot = FALSE)# show  the  data on the  original  scale9
+msd_plot  <- meanSdPlot(log_counts_normalized ,ranks=FALSE , plot = FALSE)# show  the  data on the  original  scale
 msd_plot$gg +ggtitle("sequencing  depth  normalized  log2(read  counts)") +ylab("standard  deviation")
 
 
@@ -93,8 +93,8 @@ res <- results(dds)
 
 summary(res)
 head(res)
-table(res$padj < 0.01) #10384 cok fazla..kabul edilemez
-table(res$padj < 0.01 & abs(res$log2FoldChange)>2)#3997 ideal
+table(res$padj < 0.01)
+table(res$padj < 0.01 & abs(res$log2FoldChange)>2)
 DGE_genes<-rownames(subset(res , padj < 0.01 & abs(res$log2FoldChange)>2))
 DGE_genes<-as.data.frame(DGE_genes)
 row.names(DGE_genes)<-DGE_genes[,1]
@@ -131,7 +131,7 @@ d4<-rowMeans(DGE_genes_lognorm[,c(5,6)])
 d6<-rowMeans(DGE_genes_lognorm[,c(7,8)])
 d12<-rowMeans(DGE_genes_lognorm[,c(9,10)])
 
-DGE_genes_lognorm<-as.matrix(cbind(mef,d2,d4,d6,d12))#3997 gene var
+DGE_genes_lognorm<-as.matrix(cbind(mef,d2,d4,d6,d12))
 rm(mef,d2,d4,d6,d12)
 
 DGE_auto<-t(scale(t(DGE_genes_lognorm)))
