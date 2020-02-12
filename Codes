@@ -1,0 +1,153 @@
+#Downstream Data analysis
+rawDataData<-read.table("rawDataCounts.txt",header = TRUE) 
+rawDataData<-rawDataData[,-c(2,3,4,5,6,14,15,16,17)] 
+colnames(rawDataData)<-c("Genes","MEFs_1","MEFs_2","day2_1","day2_2","day4_1","day4_2","day6_1","day6_2","day12_1","day12_2")
+row.names(rawDataData)<-rawDataData[,1]
+rawDataData<-rawDataData[,-1]
+
+#Sıfır rowlarını sil
+rawData_nonzero<-rawDataData[rowSums(rawDataData != 0) != 0,]
+
+
+#write.table(rawData_nonzero[,0],"FullList.txt",row.names = TRUE,quote = F) #To delete predicted genes, we should convert the ensembl id to gene name
+
+ens_gene<-read.table("fullList_ens_gene.txt",sep = "\t",header = T)
+row.names(ens_gene)<-ens_gene[,1]
+rawData_nonzero2<-merge(ens_gene,rawData_nonzero,by="row.names")
+rawData_nonzero2<-rawData_nonzero2[!grepl("^Gm", rawData_nonzero2$Gene.name),]
+rawData_nonzero3<-rawData_nonzero2[!grepl("Rik", rawData_nonzero2$Gene.name),]
+rawData_nonzero<-rawData_nonzero3
+rm(rawData_nonzero2,rawData_nonzero3)
+
+
+row.names(rawData_nonzero)<-rawData_nonzero[,1]
+rawData_nonzero<-rawData_nonzero[,-c(1,2,3)] 
+
+#########################################################
+
+#Sample control with PCA
+library(factoextra)
+library(ggfortify)
+contrawData<-scale(rawData_nonzero) 
+pc <- prcomp(t(contrawData),scale = T)
+summary(pc)
+autoplot(pc,label=TRUE,label.size=3)
+rm(contrawData)
+
+
+#PCA2
+library(dplyr)
+library(DEGreport)
+library(DESeq2)
+(condition <- factor(c(rep("MEFs", 2), rep("day2", 2),rep("day4",2),rep("day6",2),rep("day12",2))))
+(coldata <- data.frame(row.names=colnames(rawData_nonzero), condition))
+DESeq.ds <- DESeqDataSetFromMatrix(countData=rawData_nonzero, colData=coldata, design=~condition)
+colData(DESeq.ds) %>% head
+assay(DESeq.ds, "counts") %>% head
+counts(DESeq.ds) %>% str
+colSums(counts(DESeq.ds)) 
+
+DESeq.ds<-estimateSizeFactors(DESeq.ds)
+sizeFactors(DESeq.ds)
+colData(DESeq.ds)
+counts_normalized  <- counts(DESeq.ds, normalized = TRUE)
+log_counts_normalized <- log2(counts_normalized+1)
+par(mfrow=c(1,1)) 
+boxplot(counts_normalized , notch = TRUE ,main = "untransformed  read  counts", ylab = "read  counts")
+boxplot(log_counts_normalized , notch = TRUE ,main = "log2 -transformed  read  counts",ylab = "log2(read  counts)")
+
+library(vsn)
+library(ggplot2)
+library(hexbin)
+msd_plot  <- meanSdPlot(log_counts_normalized ,ranks=FALSE , plot = FALSE)# show  the  data on the  original  scale9
+msd_plot$gg +ggtitle("sequencing  depth  normalized  log2(read  counts)") +ylab("standard  deviation")
+
+
+DESeq.ds.rlog  <- rlog(DESeq.ds, blind = TRUE)
+rlog.norm.counts  <- assay(DESeq.ds.rlog)
+msd_plot  <- meanSdPlot(rlog.norm.counts ,ranks=FALSE ,plot = FALSE)
+msd_plot$gg +ggtitle("rlog -transformed  read  counts") +ylab("standard  deviation")
+
+distance.m_rlog  <- as.dist(1 - cor(rlog.norm.counts , method = "pearson" ))
+plot( hclust(distance.m_rlog),labels = colnames(rlog.norm.counts),
+      main = "rlog  transformed  read  counts\ndistance: Pearson  correlation")
+
+par(mfrow=c(1,1))
+pc <- prcomp(t(rlog.norm.counts))
+plot(pc$x[,1], pc$x[,2],col = colData(DESeq.ds)[,1],main = "PCA of seq.depth  normalized\n and rlog -transformed  read  counts")
+P <- plotPCA(DESeq.ds.rlog)
+P <- P + theme_bw() + ggtitle("Rlog  transformed  counts")
+print(P)
+
+###########################
+
+#Deseq2
+library(dplyr)
+library(DESeq2)
+rawData_nonzero<-as.matrix(round(rawData_nonzero))
+(condition <- factor(c(rep("MEFs", 2), rep("day2", 2),rep("day4",2),rep("day6",2),rep("day12",2))))
+(coldata <- data.frame(row.names=colnames(rawData_nonzero), condition))
+dds <- DESeqDataSetFromMatrix(countData=rawData_nonzero, colData=coldata, design=~condition)
+dds <- DESeq(dds,"LRT",reduced= ~ 1)
+res <- results(dds)
+
+summary(res)
+head(res)
+table(res$padj < 0.01) #10384 cok fazla..kabul edilemez
+table(res$padj < 0.01 & abs(res$log2FoldChange)>2)#3997 ideal
+DGE_genes<-rownames(subset(res , padj < 0.01 & abs(res$log2FoldChange)>2))
+DGE_genes<-as.data.frame(DGE_genes)
+row.names(DGE_genes)<-DGE_genes[,1]
+
+
+hist(res$pvalue ,col = " grey ", border = " white ", xlab = "", ylab = "",
+     main = " frequencies of p- values ")
+
+DGE_genes_raw<-merge(DGE_genes,ens_gene,by="row.names")
+row.names(DGE_genes_raw)<-DGE_genes_raw[,1]
+DGE_genes_raw<-merge(DGE_genes_raw,rawData_nonzero,by="row.names")
+DGE_genes_raw<-DGE_genes_raw[,-c(1,2,3,4)]
+row.names(DGE_genes_raw)<-DGE_genes_raw[,1]
+DGE_genes_raw<-DGE_genes_raw[,-1]
+
+mef<-rowMeans(DGE_genes_raw[,c(1,2)])
+d2<-rowMeans(DGE_genes_raw[,c(3,4)]) 
+d4<-rowMeans(DGE_genes_raw[,c(5,6)])
+d6<-rowMeans(DGE_genes_raw[,c(7,8)])
+d12<-rowMeans(DGE_genes_raw[,c(9,10)])
+
+DGE_genes_raw<-as.matrix(cbind(mef,d2,d4,d6,d12))
+rm(mef,d2,d4,d6,d12)
+
+DGE_genes_lognorm<-merge(DGE_genes,log_counts_normalized,by="row.names")
+row.names(DGE_genes_lognorm)<-DGE_genes_lognorm[,1]
+DGE_genes_lognorm<-DGE_genes_lognorm[,-c(1,2)]
+
+boxplot(DGE_genes_lognorm)
+
+mef<-rowMeans(DGE_genes_lognorm[,c(1,2)])
+d2<-rowMeans(DGE_genes_lognorm[,c(3,4)]) 
+d4<-rowMeans(DGE_genes_lognorm[,c(5,6)])
+d6<-rowMeans(DGE_genes_lognorm[,c(7,8)])
+d12<-rowMeans(DGE_genes_lognorm[,c(9,10)])
+
+DGE_genes_lognorm<-as.matrix(cbind(mef,d2,d4,d6,d12))#3997 gene var
+rm(mef,d2,d4,d6,d12)
+
+DGE_auto<-t(scale(t(DGE_genes_lognorm)))
+library(NMF)
+aheatmap(DGE_genes_lognorm,
+         Rowv = TRUE , Colv = TRUE ,
+         distfun = "euclidean", hclustfun = "average",
+         scale = "row")
+
+
+write.table(DGE_auto,"DGE_auto.txt",quote = F,sep = "\t") 
+
+names<-row.names(DGE_genes_raw)
+
+
+##################################################################################################
+##################################################################################################
+
+
